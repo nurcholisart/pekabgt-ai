@@ -5,29 +5,18 @@ from langchain.vectorstores import FAISS
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.llms import OpenAI
 from langchain.chains import ConversationalRetrievalChain
-from langchain.document_loaders import TextLoader
 from langchain.docstore.document import Document
-from langchain.memory import ConversationBufferMemory
-from langchain.chains.qa_with_sources import load_qa_with_sources_chain
-from langchain.chains import LLMChain
-from langchain.chains.question_answering import load_qa_chain
 from langchain.chains.conversational_retrieval.prompts import (
     CONDENSE_QUESTION_PROMPT,
 )
 
 from langchain.prompts.prompt import PromptTemplate
 
-from langchain.prompts.chat import (
-    ChatPromptTemplate,
-    SystemMessagePromptTemplate,
-    HumanMessagePromptTemplate,
-)
-
 from bs4 import BeautifulSoup
 
 import requests
 
-os.environ["OPENAI_API_KEY"] = "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"
+os.environ["OPENAI_API_KEY"] = ""
 
 
 def get_article():
@@ -41,8 +30,6 @@ def get_article():
     }
 
 
-
-
 # article = get_article()
 
 article = {
@@ -54,6 +41,15 @@ article = {
 soup = BeautifulSoup(article["content"], "html.parser")
 
 content = soup.get_text()
+
+doc = Document(
+    page_content=content,
+    metadata={
+        "title": article["title"],
+        "link": article["link"],
+        "source": article["link"],
+    },
+)
 
 documents = [
     Document(
@@ -71,19 +67,11 @@ documents = text_splitter.split_documents(documents)
 
 embeddings = OpenAIEmbeddings()
 vectorstore = FAISS.from_documents(documents, embeddings)
+vectorstore.save_local(".tmp")
 
 # ===========================================
 
-# system_template = """Use the following pieces of context to answer the users question.
-# Take note of the sources and include them in the answer in the list format.
-# If you don't know the answer, just say "Hmm, I'm not sure." Don't try to make up an answer.
-# If the answer is not available in the context, just say "I don't know", don't try to make up an answer.
-# If user no longer needs other information or wants to end the conversation, write "#close_chat" at the end of your answer.
-# If the user want to communicate with human agent, write "#assign_agent" word at the end of your answer.
-# ----------------
-# {context}"""
-
-template="""You are an AI customer service agent for answering question about Qiscus.
+template = """You are an AI customer service agent for answering question about Qiscus.
 You are given the following extracted parts of 
 a long document and a question. Provide a conversational answer using Indonesian language.
 If you don't know the answer, just say "Hmm, I'm not sure." accompanied with word "#dont_know".
@@ -96,9 +84,7 @@ Question: {question}
 =========
 Answer:"""
 
-prompt = PromptTemplate(
-    template=template, input_variables=["question", "context"]
-)
+prompt = PromptTemplate(template=template, input_variables=["question", "context"])
 
 chain = ConversationalRetrievalChain.from_llm(
     llm=OpenAI(temperature=0),
@@ -109,4 +95,20 @@ chain = ConversationalRetrievalChain.from_llm(
 )
 
 result = chain({"question": "Lebih baik kaki kanan atau kiri?", "chat_history": []})
-print(result)
+
+related_documents = []
+source_documents = result["source_documents"]
+for sd in source_documents:
+    related_documents.append({
+        "page_content": sd.page_content,
+        "metadata": sd.metadata
+    })
+
+cleaned_result = {
+    "question": result["question"],
+    "answer": result["answer"],
+    "chat_history": result["chat_history"],
+    "source_documents": related_documents
+}
+
+print(cleaned_result)
