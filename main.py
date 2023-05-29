@@ -37,6 +37,8 @@ def embedding(app_code: str, body: EmbeddingRequest):
 class ChatRequest(BaseModel):
     question: str
     api_key: str
+    chatbot_name: str
+    chatbot_description: str
     faiss_url: str
     pkl_url: str
     chat_history: list[tuple] = []
@@ -50,7 +52,7 @@ def chat(app_code: str, body: ChatRequest):
         faiss_url=body.faiss_url,
         pkl_url=body.pkl_url,
         chat_history=body.chat_history,
-        question=body.question
+        question=body.question,
     )
 
     return result
