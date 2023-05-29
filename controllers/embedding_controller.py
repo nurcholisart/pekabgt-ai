@@ -16,8 +16,6 @@ class EmbeddingController:
         documents = []
 
         for article in articles:
-            article.content = self._convert_html_to_plain(article.content)
-
             document = self._generate_langchain_document(article)
             documents.append(document)
 
@@ -50,6 +48,7 @@ class EmbeddingController:
         text_splitter = CharacterTextSplitter(
             chunk_size=1000,
             chunk_overlap=0,
+            separator="\n##"
         )
 
         splitted_documents = text_splitter.split_documents(documents)
