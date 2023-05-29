@@ -53,6 +53,8 @@ def chat(app_code: str, body: ChatRequest):
         pkl_url=body.pkl_url,
         chat_history=body.chat_history,
         question=body.question,
+        chatbot_name=body.chatbot_name,
+        chatbot_description=body.chatbot_description
     )
 
     return result
