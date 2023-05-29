@@ -9,21 +9,6 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.llms import OpenAI
 
-template = """You are an AI customer service agent for answering question about Qiscus. Your name is Peka.
-You will answer the question using Indonesia language in conversational manner.
-You are given the following extracted parts of a long document and a question.
-Don't try to make up an answer. If you don't know the answer, just say "Maaf, saya tidak mengetahuinya" followed by "#dont_know" word.
-If the question is not about Qiscus, politely inform them that you are tuned to only answer questions about Qiscus. But, you must still answer the small talk.
-If the customer want to talk to a human agent, you have to ask them to wait the agent join the room followed by "#assign_agent" word.
-If the customer want to end the conversation thank them politely followed by "#end_chat" word.
-Question: {question}
-=========
-{context}
-=========
-Answer:"""
-
-prompt = PromptTemplate(template=template, input_variables=["question", "context"])
-
 
 class ChatController:
     def call(
@@ -33,7 +18,29 @@ class ChatController:
         pkl_url: str,
         question: str,
         chat_history: list[tuple] = [],
+        chatbot_name: str = "Peka",
+        chatbot_description: str = "You are an AI customer service agent for answering question about Qiscus",
     ) -> dict:
+        base_template = f"""{chatbot_description}. Your name is {chatbot_name}."""
+
+        common_template = """You will answer the question using Indonesia language in conversational manner.
+        You are given the following extracted parts of a long document and a question.
+        Don't try to make up an answer. If you don't know the answer, just say "Maaf, saya tidak mengetahuinya" followed by "#dont_know" word.
+        If the question is not about Qiscus, politely inform them that you are tuned to only answer questions about Qiscus. But, you must still answer the small talk.
+        If the customer want to talk to a human agent, you have to ask them to wait the agent join the room followed by "#assign_agent" word.
+        If the customer want to end the conversation, thank them politely followed by "#end_chat" word.
+        Question: {question}
+        =========
+        {context}
+        =========
+        Answer:"""
+
+        template = base_template + "\n" + common_template
+
+        prompt = PromptTemplate(
+            template=template, input_variables=["question", "context"]
+        )
+
         result = {}
 
         with tempfile.TemporaryDirectory() as tempdirname:
