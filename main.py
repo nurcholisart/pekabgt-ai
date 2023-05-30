@@ -46,6 +46,7 @@ class ChatRequest(BaseModel):
 
 @app.post("/api/v1/{app_code}/chats")
 def chat(app_code: str, body: ChatRequest):
+    print(body.json())
     controller = ChatController()
     result = controller.call(
         api_key=body.api_key,

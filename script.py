@@ -16,8 +16,6 @@ import logging
 
 logging.getLogger("openai").setLevel(logging.DEBUG)  # logging.INFO or logging.DEBUG
 
-os.environ["OPENAI_API_KEY"] = "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"
-
 
 redis_chat_history = RedisChatMessageHistory(session_id="chat_history", ttl=3600)
 

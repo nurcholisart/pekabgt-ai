@@ -66,6 +66,8 @@ class ChatController:
 
             vectordbkwargs = {"search_distance": 0.9}
 
+            print("SAMPE SINIIIIIIIIIIIIIIIIIIIIIIIII")
+
             raw_result = chain(
                 {
                     "question": question,
