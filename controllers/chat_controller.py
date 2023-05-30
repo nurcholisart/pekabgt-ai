@@ -10,6 +10,10 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.llms import OpenAI
 
+import logging
+
+logging.getLogger("openai").setLevel(logging.DEBUG) # logging.INFO or logging.DEBUG
+
 
 class ChatController:
     def call(
@@ -58,15 +62,13 @@ class ChatController:
             vectorstore = FAISS.load_local(".", embeddings)
 
             chain = ConversationalRetrievalChain.from_llm(
-                llm=OpenAI(openai_api_key=api_key, temperature=0),
+                llm=OpenAI(openai_api_key=api_key, temperature=0, max_tokens=150),
                 retriever=vectorstore.as_retriever(),
                 qa_prompt=prompt,
                 return_source_documents=False,
             )
 
             vectordbkwargs = {"search_distance": 0.9}
-
-            print("SAMPE SINIIIIIIIIIIIIIIIIIIIIIIIII")
 
             raw_result = chain(
                 {
