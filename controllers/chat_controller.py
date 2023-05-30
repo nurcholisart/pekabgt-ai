@@ -24,7 +24,7 @@ class ChatController:
     ) -> dict:
 
         base_template = f"""{chatbot_description}. Your name is {chatbot_name}.
-        Use the following pieces of context to answer the question at the end.
+        Use the following pieces of context to answer the question at the end using Indonesia language.
         If you don't know the answer, just say that you don't know politely, don't try to make up an answer.
         If user ask something not about {chatbot_name}, just say that you don't know politely, don't try to make up an answer.
         
