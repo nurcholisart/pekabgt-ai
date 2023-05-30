@@ -1,10 +1,11 @@
-from langchain.prompts.prompt import PromptTemplate
-from langchain.chains.conversational_retrieval.prompts import (
-    CONDENSE_QUESTION_PROMPT,
-)
-from langchain.chains import ConversationalRetrievalChain
 import tempfile
 import requests
+
+from langchain.prompts.prompt import PromptTemplate
+# from langchain.chains.conversational_retrieval.prompts import (
+#     CONDENSE_QUESTION_PROMPT,
+# )
+from langchain.chains import ConversationalRetrievalChain
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.llms import OpenAI
@@ -21,21 +22,21 @@ class ChatController:
         chatbot_name: str = "Peka",
         chatbot_description: str = "You are an AI customer service agent for answering question about Qiscus",
     ) -> dict:
-        base_template = f"""{chatbot_description}. Your name is {chatbot_name}."""
 
-        common_template = """You will answer the question using Indonesia language in conversational manner.
-        You are given the following extracted parts of a long document and a question.
-        Don't give any information that are not mentioned in the PROVIDED CONTEXT. Don't try to make up an answer.
-        If you don't know the answer, just say "Maaf, saya tidak mengetahuinya" followed by "#dont_know" word.
-        If the customer want to talk to a human agent, you have to ask them to wait the agent join the room followed by "#assign_agent" word.
-        If the customer want to end the conversation, thank them politely followed by "#end_chat" word.
-        Question: {question}
-        =========
+        base_template = f"""{chatbot_description}. Your name is {chatbot_name}.
+        Use the following pieces of context to answer the question at the end.
+        If you don't know the answer, just say that you don't know politely, don't try to make up an answer.
+        If user ask something not about {chatbot_name}, just say that you don't know politely, don't try to make up an answer.
+        
+        """
+
+        context = """
         {context}
-        =========
-        Answer:"""
 
-        template = base_template + "\n" + common_template
+        Question: {question}
+        Helpful Answer:"""
+
+        template = base_template + "\n" + context
 
         prompt = PromptTemplate(
             template=template, input_variables=["question", "context"]
@@ -57,27 +58,27 @@ class ChatController:
             vectorstore = FAISS.load_local(".", embeddings)
 
             chain = ConversationalRetrievalChain.from_llm(
-                llm=OpenAI(openai_api_key=api_key),
+                llm=OpenAI(openai_api_key=api_key, temperature=0),
                 retriever=vectorstore.as_retriever(),
-                condense_question_prompt=CONDENSE_QUESTION_PROMPT,
                 qa_prompt=prompt,
-                return_source_documents=True,
+                return_source_documents=False,
             )
 
-            raw_result = chain({"question": question, "chat_history": chat_history})
+            vectordbkwargs = {"search_distance": 0.9}
 
-            documents = []
-            source_documents = raw_result["source_documents"] or []
-            for sd in source_documents:
-                documents.append(
-                    {"page_content": sd.page_content, "metadata": sd.metadata}
-                )
+            raw_result = chain(
+                {
+                    "question": question,
+                    "vectordbkwargs": vectordbkwargs,
+                    "chat_history": chat_history,
+                }
+            )
 
             result = {
                 "question": raw_result["question"],
                 "answer": raw_result["answer"],
                 "chat_history": raw_result["chat_history"],
-                "source_documents": documents,
+                "source_documents": [],
             }
 
             return result
