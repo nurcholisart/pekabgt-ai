@@ -85,7 +85,7 @@ class ChatController:
                         llm=OpenAI(
                             openai_api_key=api_key,
                             temperature=0,
-                            max_tokens=150,
+                            max_tokens=-1,
                             verbose=True,
                         ),
                         retriever=vectorstore.as_retriever(
