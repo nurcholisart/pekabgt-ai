@@ -1,5 +1,6 @@
 import tempfile
 import requests
+import os
 
 from fastapi.responses import JSONResponse
 
@@ -12,35 +13,21 @@ from langchain.callbacks import get_openai_callback
 from langchain.chains.question_answering import load_qa_chain
 from langchain.chains import LLMChain
 from langchain.base_language import BaseLanguageModel
+from langchain.memory import RedisChatMessageHistory
 
 import logging
 
 logging.getLogger("openai").setLevel(logging.DEBUG)  # logging.INFO or logging.DEBUG
 
-condense_template = """Given the following chat history and a follow up question, rephrase the follow up input question to be a standalone question.
-Or end the conversation if it seems like it's done.
-Chat History:\"""
-{chat_history}
-\"""
-Follow Up Input: \"""
+_condense_template = """Please rephrase the following question into good grammar.
+Please respond in same language.
+
+Question:
 {question}
-\"""
-Standalone question:"""
 
-condense_prompt = PromptTemplate.from_template(condense_template)
+Rephrased question:"""
 
-
-class NoOpLLMChain(LLMChain):
-    """No-op LLM chain."""
-
-    def __init__(self, llm: BaseLanguageModel):
-        """Initialize."""
-        super().__init__(
-            llm=llm, prompt=PromptTemplate(template="", input_variables=[])
-        )
-
-    async def arun(self, question: str, *args, **kwargs) -> str:
-        return question
+condense_prompt = PromptTemplate.from_template(_condense_template)
 
 
 class ChatController:
@@ -56,18 +43,14 @@ class ChatController:
     ) -> dict:
         with get_openai_callback() as cb:
             try:
-                llm = OpenAI(openai_api_key=api_key, max_tokens=500, verbose=True)
-
                 base_template = f"""{chatbot_description}. Your name is {chatbot_name}.
-                Use the following pieces of context and chat history to answer the question at the end using Indonesia language.
-                If you don't know the answer, just say that you don't know politely, don't try to make up an answer.
-                If user ask something not about {chatbot_name}, just say that you don't know politely, don't try to make up an answer.                
+                Using the following pieces of context, please answer the user question at the end.
+                If you don't know the answer, just say that you don't know politely. Don't try to make up an answer.
+                If user ask something not about {chatbot_name}, just say that you don't know politely, Don't try to make up an answer.    
+                Respond in Indonesia language.
                 """
 
-                context = """
-                Chat History:
-                {chat_history}
-                
+                context = """                
                 Context:
                 {context}
 
@@ -80,7 +63,7 @@ class ChatController:
 
                 prompt = PromptTemplate(
                     template=template,
-                    input_variables=["chat_history", "context", "question"],
+                    input_variables=["context", "question"],
                 )
 
                 result = {}
@@ -98,36 +81,35 @@ class ChatController:
                     embeddings = OpenAIEmbeddings(openai_api_key=api_key)
                     vectorstore = FAISS.load_local(".", embeddings)
 
-                    question_generator = NoOpLLMChain(llm=llm)
-                    doc_chain = load_qa_chain(
-                        llm=llm, chain_type="stuff", verbose=True, prompt=prompt
-                    )
-
-                    chain = ConversationalRetrievalChain(
-                        retriever=vectorstore.as_retriever(),
-                        question_generator=question_generator,
-                        combine_docs_chain=doc_chain,
+                    chain = ConversationalRetrievalChain.from_llm(
+                        llm=OpenAI(
+                            openai_api_key=api_key,
+                            temperature=0,
+                            max_tokens=150,
+                            verbose=True,
+                        ),
+                        retriever=vectorstore.as_retriever(
+                            search_kwargs={
+                                "k": 2,
+                                "search_type": "mmr",
+                                "search_distance": 0.9,
+                            }
+                        ),
+                        return_source_documents=False,
+                        condense_question_prompt=condense_prompt,
+                        combine_docs_chain_kwargs={"prompt": prompt},
                         verbose=True,
                     )
-
-                    # chain = ConversationalRetrievalChain.from_llm(
-                    #     llm=OpenAI(
-                    #         openai_api_key=api_key, temperature=0, max_tokens=150
-                    #     ),
-                    #     retriever=vectorstore.as_retriever(),
-                    #     return_source_documents=False,
-                    #     condense_question_prompt=condense_prompt,
-                    #     combine_docs_chain_kwargs={"prompt": prompt},
-                    # )
 
                     raw_result = chain(
                         {
                             "question": question,
-                            "vectordbkwargs": {"search_distance": 0.9},
                             "chat_history": chat_history,
                             "meta": {},
                         }
                     )
+
+                    chat_history.append((raw_result["question"], raw_result["answer"]))
 
                     result = {
                         "success": True,
