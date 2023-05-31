@@ -1,61 +1,63 @@
-import os
 import logging
 
 from langchain.chains.llm import LLMChain
-from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
-from langchain.chains.conversational_retrieval.prompts import (
-    CONDENSE_QUESTION_PROMPT,
-    QA_PROMPT,
-)
+from langchain.chains.conversational_retrieval.prompts import CONDENSE_QUESTION_PROMPT
 from langchain.chains.question_answering import load_qa_chain
 
 from langchain.prompts.prompt import PromptTemplate
-from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 from langchain.chains import ConversationalRetrievalChain
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.llms import OpenAI
-from langchain.memory import ConversationBufferMemory, RedisChatMessageHistory
+from langchain.memory import RedisChatMessageHistory
 
 logging.getLogger("openai").setLevel(logging.DEBUG)  # logging.INFO or logging.DEBUG
 
-llm = OpenAI(temperature=0, verbose=True)
+from langchain.callbacks import get_openai_callback
 
-question_generator = LLMChain(llm=llm, prompt=CONDENSE_QUESTION_PROMPT, verbose=True)
+with get_openai_callback() as cb:
+    llm = OpenAI(temperature=0, verbose=True)
 
-template = """You are an AI customer service agent for answering question about Qiscus. Your name is Peka.
-Use the following pieces of context to answer the question at the end.
-If you don't know the answer, just say that you don't know, don't try to make up an answer.
-If user ask something not about Qiscus, just say that you don't know, don't try to make up an answer.
+    question_generator = LLMChain(
+        llm=llm, prompt=CONDENSE_QUESTION_PROMPT, verbose=True
+    )
 
-{context}
+    template = """You are an AI customer service agent for answering question about Qiscus. Your name is Peka.
+    Use the following pieces of context to answer the question at the end.
+    If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    If user ask something not about Qiscus, just say that you don't know, don't try to make up an answer.
 
-Question: {question}
-Helpful Answer:"""
+    {context}
 
-prompt = PromptTemplate(template=template, input_variables=["question", "context"])
+    Question: {question}
+    Helpful Answer:"""
 
-doc_chain = load_qa_chain(
-    llm=llm, chain_type="stuff", prompt=prompt, verbose=True
-)
+    prompt = PromptTemplate(template=template, input_variables=["question", "context"])
 
-vectorstore = FAISS.load_local("db", OpenAIEmbeddings())
+    doc_chain = load_qa_chain(llm=llm, chain_type="stuff", prompt=prompt, verbose=True)
 
-redis_chat_history = RedisChatMessageHistory(session_id="chat_history:room_1212182", ttl=3600)
+    vectorstore = FAISS.load_local("db", OpenAIEmbeddings())
 
-qa = ConversationalRetrievalChain(
-    retriever=vectorstore.as_retriever(),
-    combine_docs_chain=doc_chain,
-    question_generator=question_generator,
-    verbose=True,
-)
+    redis_chat_history = RedisChatMessageHistory(
+        session_id="chat_history:room_1212182", ttl=3600
+    )
 
-chat_history = []
+    qa = ConversationalRetrievalChain(
+        retriever=vectorstore.as_retriever(),
+        combine_docs_chain=doc_chain,
+        question_generator=question_generator,
+        verbose=True,
+    )
 
-query = "Apa itu Robolabs?"
-result = qa({"question": query, "chat_history": redis_chat_history.messages})
+    chat_history = []
 
-redis_chat_history.add_user_message(query)
-redis_chat_history.add_ai_message(result["answer"])
+    query = "Apa keunggulan Robolabs?"
+    result = qa({"question": query, "chat_history": redis_chat_history.messages})
 
-print(result)
+    redis_chat_history.add_user_message(query)
+    redis_chat_history.add_ai_message(result["answer"])
+
+    cb.prompt_tokens
+
+    print(result)
+    print(cb)
