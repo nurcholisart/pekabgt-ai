@@ -10,10 +10,6 @@ from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.llms import OpenAI
 from langchain.callbacks import get_openai_callback
-from langchain.chains.question_answering import load_qa_chain
-from langchain.chains import LLMChain
-from langchain.base_language import BaseLanguageModel
-from langchain.memory import RedisChatMessageHistory
 
 import logging
 
