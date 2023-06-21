@@ -45,7 +45,7 @@ class EmbeddingController:
         return plain_content
 
     def _split_character_text(self, documents: list[Document]) -> list[Document]:
-        text_splitter = MarkdownTextSplitter(chunk_size=500, chunk_overlap=0)
+        text_splitter = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=0)
 
         # text_splitter = CharacterTextSplitter(
         #     chunk_size=500,
