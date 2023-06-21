@@ -33,19 +33,11 @@ class ChatController:
         faiss_url: str,
         pkl_url: str,
         question: str,
+        system_prompt: str,
         chat_history: list[tuple] = [],
-        chatbot_name: str = "Peka",
-        chatbot_description: str = "You are an AI customer service agent for answering question about Qiscus",
     ) -> dict:
         with get_openai_callback() as cb:
             try:
-                base_template = f"""{chatbot_description}. Your name is {chatbot_name}.
-                Using the following pieces of context, please answer the user question at the end.
-                If you don't know the answer, just say that you don't know politely. Don't try to make up an answer.
-                If user ask something not about {chatbot_name}, just say that you don't know politely, Don't try to make up an answer.    
-                Respond in Indonesia language.
-                """
-
                 context = """                
                 Context:
                 {context}
@@ -55,7 +47,7 @@ class ChatController:
                 
                 Helpful Answer:"""
 
-                template = base_template + "\n" + context
+                template = system_prompt + "\n\n" + context
 
                 prompt = PromptTemplate(
                     template=template,
