@@ -1,6 +1,11 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from controllers import CostEstimationController, EmbeddingController, ChatController
+from controllers import (
+    CostEstimationController,
+    EmbeddingController,
+    ChatController,
+    V2ChatController,
+)
 from models import Article
 
 app = FastAPI()
@@ -57,3 +62,26 @@ def chat(app_code: str, body: ChatRequest):
     )
 
     return result
+
+
+class V2ChatRequest(BaseModel):
+    api_key: str
+    session_id: str
+    question: str
+    system_prompt: str
+    faiss_url: str
+    pkl_url: str
+
+
+@app.post("/api/v2/{app_code}/chats")
+def chat_v2(app_code: str, body: V2ChatRequest):
+    controller = V2ChatController(
+        body.api_key,
+        body.session_id,
+        body.question,
+        body.system_prompt,
+        body.faiss_url,
+        body.pkl_url,
+    )
+
+    return controller.call()

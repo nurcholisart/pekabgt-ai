@@ -54,5 +54,6 @@ coverage.xml
 docs/_build/
 
 data_store/
-tmp/
+/tmp/*
+!/tmp/.keep
 playground/
