@@ -1,24 +1,22 @@
 import os
+import requests
+import traceback
 
 from langchain.chat_models import ChatOpenAI
-# from langchain.chains.conversational_retrieval.prompts import CONDENSE_QUESTION_PROMPT
-from langchain.chains.question_answering import load_qa_chain
-# from langchain.chains.qa_with_sources import load_qa_with_sources_chain
 from langchain.schema import Document
-
 from langchain.prompts.prompt import PromptTemplate
 from langchain.chains import ConversationalRetrievalChain
 from langchain.vectorstores import FAISS
 from langchain.embeddings.openai import OpenAIEmbeddings
-from langchain.llms import OpenAI
-from langchain.memory import RedisChatMessageHistory
+from langchain.memory import RedisChatMessageHistory, ConversationBufferMemory
 from langchain.callbacks import get_openai_callback
+from langchain.vectorstores.base import VectorStoreRetriever
 
 from fastapi.responses import JSONResponse
 
-import requests
-
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
+# OPENAI_API_BASE = "https://peka-bgt.free.beeceptor.com/v1"
+OPENAI_API_BASE = "https://api.openai.com/v1"
 
 
 class V2ChatController:
@@ -38,38 +36,29 @@ class V2ChatController:
         self.faiss_url = faiss_url
         self.pkl_url = pkl_url
 
-        self.condense_prompt_template = self.__set_condense_prompt_template()
-        self.user_prompt_template = self.__set_user_prompt_template()
-        self.message_history_store = self.__set_message_history_store()
-        self.chat_llm = self.__set_chat_llm()
-        self.embedding_wrapper = self.__set_embedding_wrapper()
-        self.vectorstore = self.__get_vectorstore()
+        self.condense_prompt_template = self._set_condense_prompt_template()
+        self.user_prompt_template = self._set_user_prompt_template()
+        self.memory = self._set_memory()
+        self.chat_llm = self._set_chat_llm()
+        self.embedding_wrapper = self._set_embedding_wrapper()
+        self.vectorstore = self._get_vectorstore()
+        self.retriever = self._set_retriever()
 
     def call(self) -> JSONResponse:
         with get_openai_callback() as cb:
             try:
-                retriever = self.vectorstore.as_retriever()
-                retriever.search_kwargs = {"k": 3, "search_distance": 0.9}
-
                 qa = ConversationalRetrievalChain.from_llm(
                     llm=self.chat_llm,
-                    retriever=retriever,
+                    verbose=True,
+                    retriever=self.retriever,
                     condense_question_prompt=self.condense_prompt_template,
                     condense_question_llm=self.chat_llm,
                     combine_docs_chain_kwargs={"prompt": self.user_prompt_template},
-                    chain_type="stuff",
                     return_source_documents=True,
+                    memory=self.memory,
                 )
 
-                result = qa(
-                    {
-                        "question": self.question,
-                        "chat_history": self.message_history_store.messages,
-                    }
-                )
-
-                self.message_history_store.add_user_message(result["question"])
-                self.message_history_store.add_ai_message(result["answer"])
+                result = qa({"question": self.question})
 
                 source_documents: list[Document] = result["source_documents"]
 
@@ -94,10 +83,16 @@ class V2ChatController:
 
                 return JSONResponse(dict_response)
             except Exception as e:
+                traceback.print_exc(limit=5)
+
                 return JSONResponse(
                     {
                         "success": False,
-                        "message": f"Request to AI service failed. {str(e)}",
+                        "error": {
+                            "humanized_message": "Execution failed",
+                            "message": str(e),
+                            "type": e.__class__.__name__,
+                        },
                         "meta": {
                             "prompt_tokens": cb.prompt_tokens,
                             "completion_tokens": cb.completion_tokens,
@@ -109,7 +104,27 @@ class V2ChatController:
                     status_code=500,
                 )
 
-    def __set_message_history_store(self) -> RedisChatMessageHistory:
+    def _set_retriever(self) -> VectorStoreRetriever:
+        retriever = self.vectorstore.as_retriever()
+
+        retriever.search_type = "similarity"
+        retriever.search_kwargs = {"k": 3}
+
+        # retriever.search_type = "similarity_score_threshold"
+        # retriever.search_kwargs = {"k": 3, "score_threshold": 0.3}
+
+        return retriever
+
+    def _set_memory(self) -> ConversationBufferMemory:
+        return ConversationBufferMemory(
+            chat_memory=self.__get_message_history_store(),
+            return_messages=True,
+            memory_key="chat_history",
+            input_key="question",
+            output_key="answer",
+        )
+
+    def __get_message_history_store(self) -> RedisChatMessageHistory:
         FIFTEEN_MINUTES = 900
 
         return RedisChatMessageHistory(
@@ -118,7 +133,7 @@ class V2ChatController:
             url=REDIS_URL,
         )
 
-    def __set_user_prompt_template(self) -> str:
+    def _set_user_prompt_template(self) -> str:
         _template = """CONTEXT:
         {context}
 
@@ -130,7 +145,7 @@ class V2ChatController:
             input_variables=["question", "context"],
         )
 
-    def __set_condense_prompt_template(self) -> str:
+    def _set_condense_prompt_template(self) -> str:
         _template = """Given the following conversation and a follow up input, rephrase the follow up input to be a standalone input, in its original language.
 
         Chat History:
@@ -144,21 +159,30 @@ class V2ChatController:
 
         return PromptTemplate.from_template(_template)
 
-    def __set_chat_llm(self) -> ChatOpenAI:
+    def _set_chat_llm(self) -> ChatOpenAI:
+        # return OpenAI(
+        #     openai_api_key=self.api_key,
+        #     openai_api_base=OPENAI_API_BASE,
+        # )
+
         return ChatOpenAI(
-            openai_api_key=self.api_key, temperature=0, model="gpt-3.5-turbo-16k"
+            openai_api_key=self.api_key,
+            model="gpt-3.5-turbo-16k",
+            openai_api_base=OPENAI_API_BASE,
         )
 
-    def __set_embedding_wrapper(self) -> OpenAIEmbeddings:
-        return OpenAIEmbeddings(openai_api_key=self.api_key)
+    def _set_embedding_wrapper(self) -> OpenAIEmbeddings:
+        return OpenAIEmbeddings(
+            openai_api_key=self.api_key, openai_api_base=OPENAI_API_BASE
+        )
 
-    def __get_vectorstore(self) -> FAISS:
+    def _get_vectorstore(self) -> FAISS:
         faiss_file_name = self.faiss_url.split("/")[-1]
         directory_name = faiss_file_name.split(".faiss")[0]
         tmp_directory_name = f"./tmp/{directory_name}"
 
         if not os.path.exists(tmp_directory_name):
-            self.___download_faiss_and_pkl_url()
+            self.__download_faiss_and_pkl_url()
 
         vectorstore = FAISS.load_local(
             tmp_directory_name, embeddings=self.embedding_wrapper
@@ -166,7 +190,7 @@ class V2ChatController:
 
         return vectorstore
 
-    def ___download_faiss_and_pkl_url(self) -> None:
+    def __download_faiss_and_pkl_url(self) -> None:
         get_faiss_resp = requests.get(self.faiss_url, allow_redirects=True)
 
         faiss_directory_name = self.faiss_url.split("/")[-1].split(".faiss")[0]
