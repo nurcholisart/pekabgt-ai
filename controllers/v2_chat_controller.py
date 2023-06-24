@@ -11,7 +11,6 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.memory import RedisChatMessageHistory, ConversationBufferMemory
 from langchain.callbacks import get_openai_callback
 from langchain.vectorstores.base import VectorStoreRetriever
-
 from fastapi.responses import JSONResponse
 
 REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
@@ -36,13 +35,114 @@ class V2ChatController:
         self.faiss_url = faiss_url
         self.pkl_url = pkl_url
 
-        self.condense_prompt_template = self._set_condense_prompt_template()
-        self.user_prompt_template = self._set_user_prompt_template()
-        self.memory = self._set_memory()
-        self.chat_llm = self._set_chat_llm()
-        self.embedding_wrapper = self._set_embedding_wrapper()
-        self.vectorstore = self._get_vectorstore()
-        self.retriever = self._set_retriever()
+    @property
+    def memory(self) -> ConversationBufferMemory:
+        return ConversationBufferMemory(
+            chat_memory=self.__get_message_history_store(),
+            return_messages=True,
+            memory_key="chat_history",
+            input_key="question",
+            output_key="answer",
+        )
+
+    @property
+    def condense_prompt_template(self) -> str:
+        _template = """Given the following conversation and a follow up input, rephrase the follow up input to be a standalone input, in its original language.
+
+        Chat History:
+        {chat_history}
+
+        Follow Up Input:
+        {question}
+
+        Standalone input:
+        """
+
+        return PromptTemplate.from_template(_template)
+
+    @property
+    def user_prompt_template(self) -> str:
+        _template = """CONTEXT:
+        {context}
+
+        QUESTION: {question}
+        HELPFUL ANSWER:"""
+
+        return PromptTemplate(
+            template=("\n" + self.system_prompt + "\n\n" + _template),
+            input_variables=["question", "context"],
+        )
+
+    @property
+    def chat_llm(self) -> ChatOpenAI:
+        return ChatOpenAI(
+            openai_api_key=self.api_key,
+            model="gpt-3.5-turbo-16k",
+            openai_api_base=OPENAI_API_BASE,
+        )
+
+    @property
+    def embedding_wrapper(self) -> OpenAIEmbeddings:
+        return OpenAIEmbeddings(
+            openai_api_key=self.api_key, openai_api_base=OPENAI_API_BASE
+        )
+
+    @property
+    def vectorstore(self) -> FAISS:
+        faiss_file_name = self.faiss_url.split("/")[-1]
+        directory_name = faiss_file_name.split(".faiss")[0]
+        tmp_directory_name = f"./tmp/{directory_name}"
+
+        if not os.path.exists(tmp_directory_name):
+            self.__download_faiss_and_pkl_url()
+
+        vectorstore = FAISS.load_local(
+            tmp_directory_name, embeddings=self.embedding_wrapper
+        )
+
+        return vectorstore
+
+    @property
+    def retriever(self) -> VectorStoreRetriever:
+        retriever = self.vectorstore.as_retriever()
+
+        retriever.search_type = "similarity"
+        retriever.search_kwargs = {"k": 3}
+
+        # retriever.search_type = "similarity_score_threshold"
+        # retriever.search_kwargs = {"k": 3, "score_threshold": 0.3}
+
+        return retriever
+
+    def __get_message_history_store(self) -> RedisChatMessageHistory:
+        FIFTEEN_MINUTES = 900
+
+        return RedisChatMessageHistory(
+            session_id=f"chat_history:{self.session_id}",
+            ttl=FIFTEEN_MINUTES,
+            url=REDIS_URL,
+        )
+
+    def __download_faiss_and_pkl_url(self) -> None:
+        get_faiss_resp = requests.get(self.faiss_url, allow_redirects=True)
+
+        faiss_directory_name = self.faiss_url.split("/")[-1].split(".faiss")[0]
+        faiss_tmp_directory_name = f"./tmp/{faiss_directory_name}"
+        faiss_file_name = f"{faiss_tmp_directory_name}/index.faiss"
+
+        os.makedirs(faiss_tmp_directory_name, exist_ok=True)
+        with open(faiss_file_name, "xb") as file:
+            file.write(get_faiss_resp.content)
+
+        get_pkl_resp = requests.get(self.pkl_url, allow_redirects=True)
+
+        pkl_directory_name = self.pkl_url.split("/")[-1].split(".pkl")[0]
+        pkl_tmp_directory_name = f"./tmp/{pkl_directory_name}"
+        pkl_file_name = f"{pkl_tmp_directory_name}/index.pkl"
+
+        os.makedirs(pkl_tmp_directory_name, exist_ok=True)
+        with open(pkl_file_name, "xb") as file:
+            file.write(get_pkl_resp.content)
 
     def call(self) -> JSONResponse:
         with get_openai_callback() as cb:
@@ -103,110 +203,3 @@ class V2ChatController:
                     },
                     status_code=500,
                 )
-
-    def _set_retriever(self) -> VectorStoreRetriever:
-        retriever = self.vectorstore.as_retriever()
-
-        retriever.search_type = "similarity"
-        retriever.search_kwargs = {"k": 3}
-
-        # retriever.search_type = "similarity_score_threshold"
-        # retriever.search_kwargs = {"k": 3, "score_threshold": 0.3}
-
-        return retriever
-
-    def _set_memory(self) -> ConversationBufferMemory:
-        return ConversationBufferMemory(
-            chat_memory=self.__get_message_history_store(),
-            return_messages=True,
-            memory_key="chat_history",
-            input_key="question",
-            output_key="answer",
-        )
-
-    def __get_message_history_store(self) -> RedisChatMessageHistory:
-        FIFTEEN_MINUTES = 900
-
-        return RedisChatMessageHistory(
-            session_id=f"chat_history:{self.session_id}",
-            ttl=FIFTEEN_MINUTES,
-            url=REDIS_URL,
-        )
-
-    def _set_user_prompt_template(self) -> str:
-        _template = """CONTEXT:
-        {context}
-
-        QUESTION: {question}
-        HELPFUL ANSWER:"""
-
-        return PromptTemplate(
-            template=("\n" + self.system_prompt + "\n\n" + _template),
-            input_variables=["question", "context"],
-        )
-
-    def _set_condense_prompt_template(self) -> str:
-        _template = """Given the following conversation and a follow up input, rephrase the follow up input to be a standalone input, in its original language.
-
-        Chat History:
-        {chat_history}
-
-        Follow Up Input:
-        {question}
-
-        Standalone input:
-        """
-
-        return PromptTemplate.from_template(_template)
-
-    def _set_chat_llm(self) -> ChatOpenAI:
-        # return OpenAI(
-        #     openai_api_key=self.api_key,
-        #     openai_api_base=OPENAI_API_BASE,
-        # )
-
-        return ChatOpenAI(
-            openai_api_key=self.api_key,
-            model="gpt-3.5-turbo-16k",
-            openai_api_base=OPENAI_API_BASE,
-        )
-
-    def _set_embedding_wrapper(self) -> OpenAIEmbeddings:
-        return OpenAIEmbeddings(
-            openai_api_key=self.api_key, openai_api_base=OPENAI_API_BASE
-        )
-
-    def _get_vectorstore(self) -> FAISS:
-        faiss_file_name = self.faiss_url.split("/")[-1]
-        directory_name = faiss_file_name.split(".faiss")[0]
-        tmp_directory_name = f"./tmp/{directory_name}"
-
-        if not os.path.exists(tmp_directory_name):
-            self.__download_faiss_and_pkl_url()
-
-        vectorstore = FAISS.load_local(
-            tmp_directory_name, embeddings=self.embedding_wrapper
-        )
-
-        return vectorstore
-
-    def __download_faiss_and_pkl_url(self) -> None:
-        get_faiss_resp = requests.get(self.faiss_url, allow_redirects=True)
-
-        faiss_directory_name = self.faiss_url.split("/")[-1].split(".faiss")[0]
-        faiss_tmp_directory_name = f"./tmp/{faiss_directory_name}"
-        faiss_file_name = f"{faiss_tmp_directory_name}/index.faiss"
-
-        os.makedirs(faiss_tmp_directory_name, exist_ok=True)
-        with open(faiss_file_name, "xb") as file:
-            file.write(get_faiss_resp.content)
-
-        get_pkl_resp = requests.get(self.pkl_url, allow_redirects=True)
-
-        pkl_directory_name = self.pkl_url.split("/")[-1].split(".pkl")[0]
-        pkl_tmp_directory_name = f"./tmp/{pkl_directory_name}"
-        pkl_file_name = f"{pkl_tmp_directory_name}/index.pkl"
-
-        os.makedirs(pkl_tmp_directory_name, exist_ok=True)
-        with open(pkl_file_name, "xb") as file:
-            file.write(get_pkl_resp.content)

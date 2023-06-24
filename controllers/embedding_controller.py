@@ -2,7 +2,7 @@ from models import Article
 
 from bs4 import BeautifulSoup
 from langchain.docstore.document import Document
-from langchain.text_splitter import CharacterTextSplitter, MarkdownTextSplitter
+from langchain.text_splitter import MarkdownTextSplitter
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.vectorstores import FAISS
 
@@ -46,12 +46,6 @@ class EmbeddingController:
 
     def _split_character_text(self, documents: list[Document]) -> list[Document]:
         text_splitter = MarkdownTextSplitter(chunk_size=1000, chunk_overlap=0)
-
-        # text_splitter = CharacterTextSplitter(
-        #     chunk_size=500,
-        #     chunk_overlap=0,
-        #     separator="\n##"
-        # )
 
         splitted_documents = text_splitter.split_documents(documents)
         return splitted_documents
